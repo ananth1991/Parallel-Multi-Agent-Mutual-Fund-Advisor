@@ -1,0 +1,25 @@
+## Setup Instructions
+
+### 1. Clone Repository
+```bash
+git clone <repository_url>
+cd mutual_fund_multi_agent
+2. Create Virtual Environment
+bash
+
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+3. Install Dependencies
+bash
+
+pip install -r requirements.txt
+4. Configure Environment Variables
+Create a .env file or configure secrets:
+
+bash
+
+OPENAI_API_KEY=your_api_key_here
+Run Application Locally
+bash
+
+streamlit run app.py
