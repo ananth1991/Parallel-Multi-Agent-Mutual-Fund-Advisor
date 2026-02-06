@@ -1,6 +1,20 @@
+langchain-community>=0.0.29
+langchain-openai>=0.0.8
+openai>=1.12.0
+python-dotenv>=1.0.0
 streamlit>=1.31.0
 langchain>=0.1.16
 langchain-community>=0.0.29
 langchain-openai>=0.0.8
 openai>=1.12.0
 python-dotenv>=1.0.0
+numpy>=1.24.0
+# scikit-learn is optional for more advanced search, not required for current numpy-only version
+langchain>=0.1.16
+langchain-community>=0.0.29
+langchain-openai>=0.0.8
+openai>=1.12.0
+python-dotenv>=1.0.0
+streamlit>=1.31.0
+numpy>=1.24.0
+# scikit-learn is optional for more advanced search, not required for current numpy-only version

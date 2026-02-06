@@ -19,7 +19,7 @@ A **multi-agent mutual fund recommendation system** that analyzes mutual funds f
 ### Key Features:
 - ✅ Local database only (3 sample funds)
 - ✅ Multiple specialized AI agents (Risk, Return, Suitability, Macro)
-- ✅ Semantic search using FAISS (vector database)
+- ✅ Semantic search using NumPy (cosine similarity)
 - ✅ OpenAI embeddings for fund matching
 - ✅ Streamlit UI with accordion-based results
 - ✅ Pre-configured fund recommendations
@@ -35,15 +35,15 @@ User Input (Fund Name)
        ↓
 orchestrator.py (Check fund exists & coordinate agents)
        ↓
-   ├─→ check_fund_exists() [aggregator_agent.py]
-   │     (Uses FAISS to match fund)
+   ├→ check_fund_exists() [aggregator_agent.py]
+   │     (Uses NumPy cosine similarity to match fund)
    │
-   └─→ If Fund Found:
-       ├─→ risk_agent (LangChain)
-       ├─→ return_agent (LangChain)
-       ├─→ suitability_agent (LangChain)
-       ├─→ macro_agent (LangChain)
-       └─→ aggregator_agent (Returns recommendation)
+   └→ If Fund Found:
+       ├→ risk_agent (LangChain)
+       ├→ return_agent (LangChain)
+       ├→ suitability_agent (LangChain)
+       ├→ macro_agent (LangChain)
+       └→ aggregator_agent (Returns recommendation)
               ↓
          Results displayed in UI with accordions
 ```
@@ -60,15 +60,14 @@ mutual_fund_multi_agent/
 ├── requirements.txt                # Dependencies
 ├── .env                           # API keys
 ├── agents/
-│   ├── dummy_db_setup.py          # Initialize FAISS index
+│   ├── dummy_db_setup.py          # Initialize database and embeddings
 │   ├── aggregator_agent.py        # Fund matching & final recommendation
 │   ├── risk_agent.py              # Risk analysis agent
 │   ├── return_agent.py            # Return analysis agent
 │   ├── suitability_agent.py       # Suitability analysis agent
 │   ├── macro_agent.py             # Macro outlook agent
 │   ├── unified_agent.py           # Alternative unified agent
-│   ├── funds.index                # FAISS vector index (generated)
-│   └── funds_meta.npy             # Fund metadata (generated)
+│   ├── funds_meta.npy             # Fund metadata (generated)
 ```
 
 ---
@@ -105,10 +104,10 @@ if not fund_exists:
 ```
 
 **Inside `check_fund_exists()` in `aggregator_agent.py`:**
-1. Load FAISS index and fund metadata
+1. Load fund metadata
 2. Convert user input to embedding (using OpenAI)
-3. Search for most similar fund in database
-4. Check if similarity distance < 0.3 threshold
+3. Calculate cosine similarity with all funds in the database
+4. Check if similarity >= 0.7 threshold
 5. Return True/Fund data if match found, False if not
 
 ### Step 4: If Fund Found, Run Parallel Agents
@@ -344,10 +343,6 @@ def embed_query(query, openai_client):
 - **What it does:**
   - Converts fund name string to OpenAI embedding
   - Returns 1536-dimensional vector
-
-### Function 3: check_fund_exists()
-```python
-def check_fund_exists(query, openai_client):
     """Check if a fund exists in the local database based on similarity threshold."""
     index, funds_meta = load_faiss_index()
     if index is None or funds_meta is None:
@@ -365,10 +360,6 @@ def check_fund_exists(query, openai_client):
     else:
         return False, None
 ```
-
-**Step by step:**
-1. Load FAISS index and fund metadata
-2. Convert user query to embedding
 3. Search FAISS index for most similar fund
    - `index.search()` returns distances (D) and indices (I)
    - We get top 1 match
@@ -392,7 +383,6 @@ def aggregator_agent(query):
     
     query_vec = embed_query(query, openai_client)
     D, I = index.search(np.expand_dims(query_vec, axis=0), k=1)
-    
     retrieved_fund = funds_meta[I[0][0]]
     
     def aggregator_runnable(inputs):
@@ -428,7 +418,6 @@ def risk_agent(llm):
     prompt = PromptTemplate(
         input_variables=["fund"],
         template="""
-        You are a professional mutual fund risk analyst.
 
         Analyze the risk profile of the mutual fund: {fund}
 
@@ -438,8 +427,51 @@ def risk_agent(llm):
     )
     return prompt | llm
 ```
-
 **What it does:**
+    **Purpose:** Find fund in database and provide pre-configured recommendation
+
+    **Key Functions:**
+
+    ### Function 1: load_fund_vectors()
+    ```python
+    def load_fund_vectors():
+        try:
+            vectors = np.load("agents/funds_vectors.npy")
+            funds_meta = np.load("agents/funds_meta.npy", allow_pickle=True)
+            return vectors, funds_meta
+        except Exception as e:
+            print(f"Error loading fund vectors or metadata: {e}")
+            return None, None
+    ```
+    - **Purpose:** Load fund metadata
+    - **Input:** None (reads from disk)
+    - **Output:** (vectors, funds_meta) or (None, None)
+    - **What it does:**
+      - Loads numpy array with fund data (name, category, risk, etc.)
+      - Returns None if file not found
+
+    ### Function 2: aggregator_agent()
+    ```python
+    def aggregator_agent(query):
+        load_dotenv()
+        vectors, funds_meta = load_fund_vectors()
+        if vectors is None or funds_meta is None:
+            return "Error: fund vectors or metadata not found. Please run dummy_db_setup.py first."
+        # Exact match (case-insensitive)
+        query_lower = query.strip().lower()
+        for fund in funds_meta:
+            if fund.get("name", "").strip().lower() == query_lower:
+                fund_name = fund.get("name", "Unknown Fund")
+                fund_recommendation = fund.get("recommendation", "No recommendation available")
+                return f"Recommendation for {fund_name}: {fund_recommendation}"
+        return "No match found"
+    ```
+    - **Purpose:** Find exact match for fund name and return recommendation
+    - **Input:** query (user's fund name)
+    - **Output:** Recommendation string or "No match found"
+    - **What it does:**
+      - Checks for exact (case-insensitive) match in fund metadata
+      - Returns recommendation if found, else "No match found"
 - Creates a prompt template with placeholder for fund name
 - Returns a LangChain runnable (prompt | llm)
 - When called with {"fund": "Alpha Growth Fund"}, it:
@@ -655,9 +687,9 @@ RUNTIME PHASE (Each time user queries):
 │   │
 │   ├─ Check fund exists:
 │   │   ├─ Convert "Alpha Growth Fund" to embedding
-│   │   ├─ Search FAISS index (k=1)
-│   │   ├─ Get best match distance
-│   │   └─ If distance < 0.3: FOUND ✓ else: NOT FOUND ✗
+│   │   ├─ Calculate cosine similarity with all funds
+│   │   ├─ Get best match
+│   │   └─ If match found: FOUND ✓ else: NOT FOUND ✗
 │   │
 │   ├─ If FOUND, Initialize LangChain LLM
 │   │
@@ -691,14 +723,14 @@ RUNTIME PHASE (Each time user queries):
 
 ## Key Concepts
 
-### 1. FAISS (Facebook AI Similarity Search)
-**What:** Vector database for fast similarity search
-**Why:** Fast semantic search through embeddings
+### 1. Semantic Search with NumPy
+**What:** Finding similar items (funds) based on numerical data (embeddings)
+**Why:** To match user query with fund data without keyword search
 **How in our app:**
 - Fund names get converted to 1536-dim vectors
 - User query gets converted to same vector space
-- FAISS finds most similar fund
-- Distance threshold (0.3) ensures only exact matches
+- NumPy calculates cosine similarity between vectors
+- Only exact matches (similarity >= 0.7) are considered
 
 ### 2. OpenAI Embeddings
 **What:** Convert text to numerical vectors
@@ -715,18 +747,12 @@ RUNTIME PHASE (Each time user queries):
 - Running agents in parallel (RunnableParallel)
 - Invoking LLM with structured prompts
 
-### 4. Distance Threshold (0.3)
-**Why so strict?**
-- Prevents false matches
-- Ensures "Nippon India Small Cap" doesn't match "Alpha Growth Fund"
-- Returns "no data found" for queries not in database
-
-**How it works:**
-- L2 distance measured between embedding vectors
-- If best_distance > 0.3 → NOT a match → "no data found"
-- If best_distance ≤ 0.3 → IS a match → run agents
-
-### 5. Parallel Execution
+### 4. Cosine Similarity
+**What:** Measure of similarity between two vectors
+**Range:** -1 (exact opposites) to 1 (exact matches)
+**Used for:**
+- Matching user query with fund embeddings
+- Only proceeds if similarity is 0.7 or higher
 **Why parallel?**
 - All 4 agents run simultaneously (not sequentially)
 - Faster overall execution time
@@ -746,9 +772,6 @@ RunnableParallel({
 **Why not use LLM for final recommendation?**
 - Recommendations are expert-verified
 - Consistent and reliable
-- Faster (no API call needed)
-- More trustworthy
-
 **Where stored:** In fund object's "recommendation" property
 
 ---
@@ -768,30 +791,27 @@ openai_client = OpenAI(api_key=openai_api_key)
 ```
 **What:** Creates client to call OpenAI API
 
-### Line 3: Load FAISS index
+### Line 3: Load fund metadata
 ```python
-index = faiss.read_index("agents/funds.index")
+funds_meta = np.load("agents/funds_meta.npy", allow_pickle=True)
 ```
-**What:** Loads pre-built vector index from disk
+**What:** Loads fund metadata (name, category, risk, etc.) from file
 
-### Line 4: Search FAISS
+### Line 4: Embed query
 ```python
-D, I = index.search(np.expand_dims(query_vec, axis=0), k=1)
+query_vec = embed_query(query, openai_client)
 ```
-**What:** 
-- D = distances (how similar)
-- I = indices (which fund)
-- k=1 = get top 1 match
+**What:** Converts user query to 1536-dimensional vector
 
-### Line 5: Get distance
+### Line 5: Calculate cosine similarity
 ```python
-best_distance = D[0][0]
+similarity = cosine_similarity(query_vec, fund_vector)
 ```
-**What:** Extract distance of top match
+**What:** Measures similarity between query and fund vectors
 
-### Line 6: Check threshold
+### Line 6: Check similarity threshold
 ```python
-if best_distance <= DISTANCE_THRESHOLD:
+if similarity >= 0.7:
 ```
 **What:** Only proceed if fund is similar enough
 
@@ -856,9 +876,9 @@ User Query: "Alpha Growth Fund"
      ↓ 
 app.py: Takes input, calls orchestrator
      ↓
-orchestrator.py: Checks if fund exists via FAISS
+orchestrator.py: Checks if fund exists via cosine similarity
      ↓
-Is Fund in Database? (distance < 0.3)
+Is Fund in Database? (similarity >= 0.7)
      ├─ NO → Return "No data found" message
      └─ YES → Continue to agents
                ↓
@@ -879,8 +899,8 @@ app.py: Display results with accordions + recommendation
 
 This is a **production-grade multi-agent system** that:
 
-✅ **Uses local database only** (3 sample funds via FAISS)
-✅ **Prevents hallucination** (strict distance threshold)
+✅ **Uses local database only** (3 sample funds via NumPy)
+✅ **Prevents hallucination** (strict similarity threshold)
 ✅ **Runs multiple analyses in parallel** (faster execution)
 ✅ **Provides structured output** (accordions for different perspectives)
 ✅ **Uses pre-verified recommendations** (data-driven, not LLM-generated)
@@ -902,4 +922,4 @@ This is a **production-grade multi-agent system** that:
 ---
 
 **Created:** February 2026
-**Technology Stack:** Python, LangChain, OpenAI, FAISS, Streamlit
+**Technology Stack:** Python, LangChain, OpenAI, NumPy, Streamlit

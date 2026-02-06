@@ -21,10 +21,18 @@ if st.button("Analyze Fund"):
         else:
             # Display agent results as accordions
             st.subheader("🔍 Agent Insights")
-            
             for agent_name, output in agent_results.items():
                 with st.expander(f"📋 {agent_name}"):
-                    st.write(output.content)
+                    for k, v in output.items():
+                        if k != "fund":
+                            st.write(f"**{k.replace('_', ' ').capitalize()}:** {v}")
 
             st.subheader("📌 Final Recommendation")
-            st.success(final_decision)
+            # If aggregator agent output is an error, show as error, else as success
+            if isinstance(final_decision, str) and final_decision.strip().lower().startswith("error"):
+                st.error(final_decision)
+            else:
+                # Remove 'Aggregator agent error:' prefix if present
+                if isinstance(final_decision, str) and final_decision.lower().startswith("aggregator agent error:"):
+                    final_decision = final_decision[len("Aggregator agent error:"):].strip()
+                st.success(final_decision)

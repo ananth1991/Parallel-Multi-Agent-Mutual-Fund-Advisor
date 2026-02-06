@@ -1,5 +1,4 @@
 import numpy as np
-import faiss
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
@@ -37,10 +36,8 @@ funds = [
     }
 ]
 
-# Use OpenAI to embed fund descriptions
 def get_fund_vector(fund, openai_client):
     desc = f"{fund['name']} {fund['category']} {fund['risk']} {fund['returns']} {fund['suitability']} {fund['macro']}"
-    # Ensure input is a string
     if not isinstance(desc, str):
         desc = str(desc)
     response = openai_client.embeddings.create(
@@ -49,22 +46,19 @@ def get_fund_vector(fund, openai_client):
     )
     return np.array(response.data[0].embedding, dtype=np.float32)
 
-def create_faiss_index():
+def create_fund_vectors():
     openai_api_key = os.getenv("OPENAI_API_KEY")
     openai_client = OpenAI(api_key=openai_api_key)
-    dim = 1536  # Embedding dimension for ada-002
-    index = faiss.IndexFlatL2(dim)
     vectors = []
     for fund in funds:
         vec = get_fund_vector(fund, openai_client)
         vectors.append(vec)
     vectors_np = np.vstack(vectors)
-    index.add(vectors_np)
     # Ensure agents/ directory exists
     os.makedirs("agents", exist_ok=True)
-    faiss.write_index(index, "agents/funds.index")
+    np.save("agents/funds_vectors.npy", vectors_np)
     np.save("agents/funds_meta.npy", funds)
-    print("FAISS index and metadata saved in agents/.")
+    print("Saved fund vectors and metadata in agents/ directory.")
 
 if __name__ == "__main__":
-    create_faiss_index()
+    create_fund_vectors()

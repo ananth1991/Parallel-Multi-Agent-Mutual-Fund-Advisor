@@ -9,33 +9,21 @@ from agents.risk_agent import risk_agent
 from agents.return_agent import return_agent
 from agents.suitability_agent import suitability_agent
 from agents.macro_agent import macro_agent
-from agents.aggregator_agent import aggregator_agent, check_fund_exists
+from agents.aggregator_agent import aggregator_agent
+from agents.utils import find_closest_fund
 
 
 def run_parallel_analysis(fund_name: str):
-    # First, check if fund exists in the local database
-    openai_client = OpenAI()
-    fund_exists, matched_fund = check_fund_exists(fund_name, openai_client)
-    
-    if not fund_exists:
-        return None, f"No data found for '{fund_name}' in the local database. Available funds: Alpha Growth Fund, Beta Income Fund, Gamma Balanced Fund."
-    
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    # Call aggregator_agent with the user's raw input for exact match
+    final_decision = aggregator_agent(fund_name)
+    if final_decision == "No match found":
+        return None, final_decision
 
-    parallel_agents = RunnableParallel({
-        "Risk Analysis": risk_agent(llm),
-        "Return Analysis": return_agent(llm),
-        "Suitability Analysis": suitability_agent(llm),
-        "Macro Outlook": macro_agent(llm),
-    })
-
-    agent_outputs = parallel_agents.invoke({"fund": fund_name})
-
-    final_runnable = aggregator_agent(fund_name)
-    # Handle error if aggregator_agent returns a string
-    if isinstance(final_runnable, str):
-        return agent_outputs, f"Aggregator agent error: {final_runnable}"
-    final_decision = final_runnable({
-        "inputs": agent_outputs
-    })
+    # Only run LLM agents if a match is found
+    agent_outputs = {
+        "Risk Analysis": risk_agent(fund_name),
+        "Return Analysis": return_agent(fund_name),
+        "Suitability Analysis": suitability_agent(fund_name),
+        "Macro Outlook": macro_agent(fund_name),
+    }
     return agent_outputs, final_decision

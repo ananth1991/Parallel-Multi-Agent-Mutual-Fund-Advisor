@@ -1,24 +1,5 @@
-import numpy as np
-import faiss
 from openai import OpenAI
-import os
-from dotenv import load_dotenv
-
-def load_faiss_index():
-    try:
-        index = faiss.read_index("agents/funds.index")
-        funds_meta = np.load("agents/funds_meta.npy", allow_pickle=True)
-        return index, funds_meta
-    except Exception as e:
-        print(f"Error loading FAISS index or metadata: {e}")
-        return None, None
-
-def embed_query(query, openai_client):
-    response = openai_client.embeddings.create(
-        input=query,
-        model="text-embedding-ada-002"
-    )
-    return np.array(response.data[0].embedding, dtype=np.float32)
+from agents.utils import find_closest_fund
 
 def run_agent(agent_type, fund, openai_client):
     if agent_type == "macro":
@@ -39,15 +20,32 @@ def run_agent(agent_type, fund, openai_client):
     )
     return completion.choices[0].message.content
 
+def unified_agent(query):
+    openai_client = OpenAI()
+    fund, score = find_closest_fund(query, openai_client)
+    context = (
+        f"Name: {fund['name']}, Category: {fund['category']}, Risk: {fund['risk']}, "
+        f"Returns: {fund['returns']}, Suitability: {fund['suitability']}, Macro: {fund['macro']}"
+    )
+    results = {}
+    for agent in ["macro", "return", "risk", "suitability", "aggregator"]:
+        results[agent] = run_agent(agent, context, openai_client)
+    return results
+    return completion.choices[0].message.content
+
+def unified_agent(query):
     load_dotenv()
     openai_api_key = os.getenv("OPENAI_API_KEY")
     openai_client = OpenAI(api_key=openai_api_key)
-    index, funds_meta = load_faiss_index()
-    if index is None or funds_meta is None:
-        return {"error": "FAISS index or metadata not found. Please run dummy_db_setup.py first."}
+    vectors, funds_meta = load_fund_vectors()
+    if vectors is None or funds_meta is None:
+        return {"error": "fund vectors or metadata not found. Please run dummy_db_setup.py first."}
     query_vec = embed_query(query, openai_client)
-    D, I = index.search(np.expand_dims(query_vec, axis=0), k=3)
-    retrieved = [funds_meta[i] for i in I[0]]
+    # Compute cosine similarity with all funds
+    sims = np.array([cosine_similarity(query_vec, v) for v in vectors])
+    top_k = 3
+    top_indices = np.argsort(sims)[-top_k:][::-1]
+    retrieved = [funds_meta[i] for i in top_indices]
     fund_context = "\n".join([
         f"Name: {fund['name']}, Category: {fund['category']}, Risk: {fund['risk']}, Returns: {fund['returns']}, Suitability: {fund['suitability']}, Macro: {fund['macro']}"
         for fund in retrieved
